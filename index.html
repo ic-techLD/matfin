@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Matfin — Organizador Financeiro</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2300d68f'/%3E%3Cstop offset='1' stop-color='%231e6fc9'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial Black,Arial,sans-serif' font-weight='900' font-size='26' fill='white' letter-spacing='-1'%3EMF%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Firebase SDKs (versão compat para uso simples sem bundler) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <!-- Chart.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- Tela de carregamento inicial -->
+<div id="loading-screen" style="
+  position:fixed; inset:0; background:var(--bg-0);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:9999; gap:16px;">
+  <div style="
+    width:52px; height:52px;
+    background: linear-gradient(135deg,#00d68f,#1e6fc9);
+    border-radius:14px; display:flex; align-items:center; justify-content:center;
+    font-size:16px; font-weight:900; color:#fff; letter-spacing:-1px;
+    font-family:'Inter',sans-serif;">MF</div>
+  <p style="color:var(--text-2); font-size:0.9rem; font-family:'Inter',sans-serif;">Carregando...</p>
+  <div style="
+    width:40px; height:4px; background:var(--bg-2); border-radius:4px; overflow:hidden;">
+    <div style="
+      height:100%; width:40%; background:var(--green);
+      border-radius:4px; animation:loadbar 1s ease infinite alternate;">
+    </div>
+  </div>
+</div>
+<style>
+@keyframes loadbar { from { margin-left:0; } to { margin-left:60%; } }
+</style>
+
+<button class="theme-toggle" onclick="toggleTheme()" title="Alternar tema">
+  <div class="toggle-track"><div class="toggle-thumb"></div></div>
+  <span id="theme-label">Modo Claro</span>
+</button>
+
+<!-- ══════════════════════════════════════════════════════════
+     AUTENTICAÇÃO
+══════════════════════════════════════════════════════════ -->
+<div id="auth-root">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="logo-icon">MF</div>
+      <h1>Matfin</h1>
+      <p>Organizador de Orçamento Familiar</p>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tab-login"    onclick="switchAuthTab('login')">Entrar</button>
+      <button class="auth-tab"        id="tab-register" onclick="switchAuthTab('register')">Criar Conta</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="pane-login">
+      <div id="login-msg" class="msg"></div>
+      <div class="form-group">
+        <label>Nome de Usuário</label>
+        <input type="text" id="login-username" placeholder="seu_usuario" autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter') handleLogin()" />
+      </div>
+      <button id="btn-login" class="btn btn-primary" onclick="handleLogin()">Entrar na Conta</button>
+      <div class="auth-link">Esqueceu a senha? <a onclick="switchAuthTab('reset')">Redefinir senha</a></div>
+    </div>
+
+    <!-- REGISTRO -->
+    <div id="pane-register" style="display:none;">
+      <div id="reg-msg" class="msg"></div>
+      <div class="form-group">
+        <label>Nome de Usuário</label>
+        <input type="text" id="reg-username" placeholder="Mínimo 3 caracteres" autocomplete="username" />
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" id="reg-password" placeholder="Mínimo 6 caracteres" autocomplete="new-password" />
+      </div>
+      <div class="form-group">
+        <label>Confirmar Senha</label>
+        <input type="password" id="reg-confirm" placeholder="Repita a senha" autocomplete="new-password"
+               onkeydown="if(event.key==='Enter') handleRegister()" />
+      </div>
+      <button id="btn-register" class="btn btn-primary" onclick="handleRegister()">Criar Conta</button>
+      <div class="auth-link">Já tem conta? <a onclick="switchAuthTab('login')">Fazer login</a></div>
+    </div>
+
+    <!-- REDEFINIR SENHA -->
+    <div id="pane-reset" style="display:none;">
+      <div id="reset-msg" class="msg"></div>
+      <p style="color:var(--text-2); font-size:0.85rem; margin-bottom:16px;">
+        Informe o nome de usuário da sua conta para redefinir a senha.
+      </p>
+      <div class="form-group">
+        <label>Nome de Usuário</label>
+        <input type="text" id="reset-username" placeholder="seu_usuario" />
+      </div>
+      <div class="form-group">
+        <label>Nova Senha</label>
+        <input type="password" id="reset-newpass" placeholder="Mínimo 6 caracteres" />
+      </div>
+      <div class="form-group">
+        <label>Confirmar Nova Senha</label>
+        <input type="password" id="reset-confirm" placeholder="Repita a nova senha"
+               onkeydown="if(event.key==='Enter') handleReset()" />
+      </div>
+      <button id="btn-reset" class="btn btn-primary" onclick="handleReset()">Redefinir Senha</button>
+      <div class="auth-link">Lembrou? <a onclick="switchAuthTab('login')">Voltar ao login</a></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     APLICATIVO PRINCIPAL
+══════════════════════════════════════════════════════════ -->
+<div id="app-root">
+
+  <!-- BARRA LATERAL -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">MF</div>
+      <div class="logo-text">Matfin <span>Orçamento Familiar</span></div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section-label">Visão Geral</div>
+      <div class="nav-item active" data-page="dashboard" onclick="navigateTo('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+          <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+        </svg>Painel
+      </div>
+
+      <div class="nav-section-label">Finanças</div>
+      <div class="nav-item" data-page="income" onclick="navigateTo('income')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="1" x2="12" y2="23"/>
+          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>Receitas e Renda
+      </div>
+      <div class="nav-item" data-page="expenses" onclick="navigateTo('expenses')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>Despesas
+      </div>
+      <div class="nav-item" data-page="goals" onclick="navigateTo('goals')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+        </svg>Metas Financeiras
+      </div>
+
+      <div class="nav-section-label">Calculadoras</div>
+      <div class="nav-item" data-page="simple" onclick="navigateTo('simple')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>Juros Simples
+      </div>
+      <div class="nav-item" data-page="compound" onclick="navigateTo('compound')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
+        </svg>Juros Compostos
+      </div>
+      <div class="nav-item" data-page="consignado" onclick="navigateTo('consignado')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>Consignado
+      </div>
+      <div class="nav-item" data-page="cashflow" onclick="navigateTo('cashflow')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+          <line x1="3" y1="6" x2="21" y2="6"/>
+          <path d="M16 10a4 4 0 0 1-8 0"/>
+        </svg>Compra Parcelada
+      </div>
+      <div class="nav-item" data-page="savings" onclick="navigateTo('savings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2a10 10 0 0 1 10 10c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2z"/>
+          <path d="M12 6v6l4 2"/>
+        </svg>Poupança
+      </div>
+      <div class="nav-item" data-page="vehicle" onclick="navigateTo('vehicle')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="1" y="3" width="15" height="13" rx="2"/>
+          <path d="M16 8h4l3 3v5h-7V8z"/>
+          <circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+        </svg>Veículos e Imóveis
+      </div>
+      <div class="nav-item" data-page="discount" onclick="navigateTo('discount')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+          <line x1="7" y1="7" x2="7.01" y2="7"/>
+        </svg>Desconto à Vista
+      </div>
+
+      <div class="nav-section-label">Conta</div>
+      <div class="nav-item" data-page="settings" onclick="navigateTo('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+        </svg>Configurações
+      </div>
+      <div class="nav-item" data-page="videos" onclick="navigateTo('videos')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="23 7 16 12 23 17 23 7"/>
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+        </svg>Vídeos Educacionais
+      </div>
+      <div class="nav-item" data-page="credits" onclick="navigateTo('credits')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>Créditos
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <div class="user-avatar" id="sidebar-avatar">U</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebar-username">Usuário</div>
+          <div class="user-label">Conta Ativa</div>
+        </div>
+      </div>
+      <button class="btn-logout" onclick="handleLogout()">Sair da Conta</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+
+    <!-- ── PAINEL ─────────────────────────────────────────────── -->
+    <div class="page active" id="page-dashboard">
+      <div class="page-header">
+        <h2>Painel</h2>
+        <p>Visão geral das suas finanças</p>
+      </div>
+      <div class="grid-4" style="margin-bottom:24px;">
+        <div class="stat-card green">
+          <div class="stat-label">Total de Receitas</div>
+          <div class="stat-value green" id="dash-income">R$ 0,00</div>
+          <div class="stat-sub">Soma de entradas</div>
+        </div>
+        <div class="stat-card red">
+          <div class="stat-label">Total de Despesas</div>
+          <div class="stat-value red" id="dash-expenses">R$ 0,00</div>
+          <div class="stat-sub">Soma de saídas</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-label">Saldo</div>
+          <div class="stat-value blue" id="dash-balance">R$ 0,00</div>
+          <div class="stat-sub">Receitas menos Despesas</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-label">Poupado / Investido</div>
+          <div class="stat-value yellow" id="dash-saved">R$ 0,00</div>
+          <div class="stat-sub">Acumulado</div>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot green"></span>Despesas por Categoria</div>
+          <div class="chart-wrap"><canvas id="dash-bar-chart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot yellow"></span>Receitas vs Despesas</div>
+          <div class="chart-wrap"><canvas id="dash-donut-chart"></canvas></div>
+          <div style="text-align:center; margin-top:12px;">
+            <span class="text-muted small">Metas ativas: </span>
+            <strong class="text-green" id="dash-goals-count">0</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── RECEITAS ───────────────────────────────────────────── -->
+    <div class="page" id="page-income">
+      <div class="page-header">
+        <h2>Receitas e Renda</h2>
+        <p>Registre sua renda e defina quanto guardar ou investir</p>
+      </div>
+      <div class="grid-2" style="margin-bottom:24px;">
+        <div class="stat-card green">
+          <div class="stat-label">Total Guardado</div>
+          <div class="stat-value green" id="income-total-saved">R$ 0,00</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-label">Total Investido</div>
+          <div class="stat-value yellow" id="income-total-invested">R$ 0,00</div>
+        </div>
+      </div>
+      <div class="card mb-20">
+        <div class="card-title"><span class="dot green"></span>Registrar Renda</div>
+        <div class="field-row cols-2">
+          <div class="field"><label>Renda Total (R$)</label><input type="text" inputmode="decimal" id="alloc-income" data-money placeholder="Ex: 3.500 ou 3500" min="0.01" step="0.01" /></div>
+          <div class="field"><label>Data (dd/mm/aaaa)</label><input type="date" id="alloc-date" /></div>
+        </div>
+        <div class="field-row cols-2">
+          <div class="field"><label>Guardar (R$)</label><input type="text" inputmode="decimal" id="alloc-saved" data-money placeholder="Ex: 500 ou 500,00" min="0" step="0.01" /></div>
+          <div class="field"><label>Investir (R$)</label><input type="text" inputmode="decimal" id="alloc-invested" data-money placeholder="Ex: 300 ou 300,00" min="0" step="0.01" /></div>
+        </div>
+        <div class="highlight-box mb-12">
+          <p class="small text-muted">O restante (Renda menos Guardado menos Investido) fica disponível como saldo livre.</p>
+        </div>
+        <button class="btn btn-calc" onclick="addAllocation()">Registrar Renda</button>
+      </div>
+      <div class="card mb-20">
+        <div class="card-title"><span class="dot blue"></span>Histórico de Alocações</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Data</th><th>Renda Total</th><th>Guardado</th><th>Investido</th><th>Saldo Livre</th><th></th></tr></thead>
+            <tbody id="income-alloc-table"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot green"></span>Outras Entradas</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Data</th><th>Descrição</th><th>Valor</th><th></th></tr></thead>
+            <tbody id="income-tx-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DESPESAS ───────────────────────────────────────────── -->
+    <div class="page" id="page-expenses">
+      <div class="page-header">
+        <h2>Despesas</h2>
+        <p>Classifique suas despesas e visualize a distribuição</p>
+      </div>
+      <div class="grid-4" style="margin-bottom:24px;">
+        <div class="stat-card green">
+          <div class="stat-label">Essenciais</div>
+          <div class="stat-value green" id="exp-total-essential">R$ 0,00</div>
+          <div class="stat-sub" id="exp-pct-ess">0% do total</div>
+        </div>
+        <div class="stat-card yellow">
+          <div class="stat-label">Não Essenciais</div>
+          <div class="stat-value yellow" id="exp-total-nonessential">R$ 0,00</div>
+          <div class="stat-sub" id="exp-pct-non">0% do total</div>
+        </div>
+        <div class="stat-card red" style="grid-column: span 2;">
+          <div class="stat-label">Total de Despesas</div>
+          <div class="stat-value red" id="exp-total">R$ 0,00</div>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-bottom:24px;">
+        <div class="card">
+          <div class="card-title"><span class="dot yellow"></span>Essenciais vs Não Essenciais</div>
+          <div class="chart-wrap" style="max-width:300px; margin:0 auto;"><canvas id="exp-pie-chart"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot red"></span>Despesas por Categoria</div>
+          <div class="chart-wrap"><canvas id="exp-bar-chart"></canvas></div>
+        </div>
+      </div>
+      <div class="card mb-20">
+        <div class="card-title"><span class="dot red"></span>Nova Despesa</div>
+        <div class="field-row cols-3">
+          <div class="field"><label>Descrição</label><input type="text" id="exp-desc" placeholder="Ex: Supermercado" /></div>
+          <div class="field"><label>Valor (R$)</label><input type="text" inputmode="decimal" id="exp-amount" data-money placeholder="0,00" min="0.01" step="0.01" /></div>
+          <div class="field"><label>Data (dd/mm/aaaa)</label><input type="date" id="exp-date" /></div>
+        </div>
+        <div class="field-row cols-2">
+          <div class="field">
+            <label>Categoria</label>
+            <select id="exp-category">
+              <option>Alimentação</option><option>Moradia</option><option>Transporte</option>
+              <option>Saúde</option><option>Educação</option><option>Lazer</option>
+              <option>Vestuário</option><option>Serviços</option><option>Assinaturas</option><option>Outros</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Tipo</label>
+            <div class="radio-group">
+              <label class="radio-label"><input type="radio" name="exp-type" value="essential" checked /> Essencial</label>
+              <label class="radio-label"><input type="radio" name="exp-type" value="non-essential" /> Não Essencial</label>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-calc" onclick="addExpense()">Adicionar Despesa</button>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="dot red"></span>Histórico de Despesas</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th></th></tr></thead>
+            <tbody id="exp-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── JUROS SIMPLES ──────────────────────────────────────── -->
+    <div class="page" id="page-simple">
+      <div class="page-header">
+        <h2>Juros Simples</h2>
+        <p>Cálculo de juros lineares sobre um capital inicial. Fórmula: M = P × (1 + i × t)</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Parâmetros</div>
+          <div class="highlight-box" style="margin-bottom:16px;">
+            <p class="small"><strong>Fórmula:</strong> M = P × (1 + i × t)</p>
+            <p class="small text-muted">P = capital inicial    i = taxa por período    t = número de períodos</p>
+          </div>
+          <div class="field"><label>Capital Inicial (R$)</label><input type="text" inputmode="decimal" id="si-principal" data-money placeholder="Ex: 1.000 ou 1000" min="0.01" step="0.01" /></div>
+          <div class="field"><label>Taxa de Juros por Período (%)</label><input type="number" id="si-rate" placeholder="Ex: 2,5" min="0.001" step="0.001" /></div>
+          <div class="field"><label>Número de Períodos</label><input type="number" id="si-periods" placeholder="Ex: 12" min="1" step="1" /></div>
+          <button class="btn btn-calc" onclick="calcSimple()">Calcular</button>
+          <div id="si-result" style="display:none;">
+            <div class="result-box">
+              <div class="result-row"><span class="label">Capital Inicial</span><span class="value" id="si-res-principal"></span></div>
+              <div class="result-row"><span class="label">Total de Juros</span><span class="value green" id="si-res-interest"></span></div>
+              <div class="result-row"><span class="label">Taxa Aplicada</span><span class="value" id="si-res-rate"></span></div>
+              <div class="result-row"><span class="label">Montante Final</span><span class="value green big" id="si-res-total"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot green"></span>Evolução do Saldo</div>
+          <div class="chart-wrap"><canvas id="si-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── JUROS COMPOSTOS ────────────────────────────────────── -->
+    <div class="page" id="page-compound">
+      <div class="page-header">
+        <h2>Juros Compostos</h2>
+        <p>Juros incidem sobre o montante acumulado. Fórmula: M = P × (1 + i)^t</p>
+      </div>
+      <div class="grid-2" style="margin-bottom:20px;">
+        <div class="card">
+          <div class="card-title"><span class="dot yellow"></span>Parâmetros</div>
+          <div class="highlight-box yellow" style="margin-bottom:16px;">
+            <p class="small"><strong>Fórmula:</strong> M = P × (1 + i)^t</p>
+            <p class="small text-muted">Cada período, os juros são calculados sobre o saldo atualizado do período anterior (juros sobre juros). O gráfico compara com juros simples para evidenciar a diferença.</p>
+          </div>
+          <div class="field"><label>Capital Inicial (R$)</label><input type="text" inputmode="decimal" id="ci-principal" data-money placeholder="Ex: 5.000 ou 5000" min="0.01" step="0.01" /></div>
+          <div class="field"><label>Taxa de Juros por Período (%)</label><input type="number" id="ci-rate" placeholder="Ex: 1,5" min="0.001" step="0.001" /></div>
+          <div class="field"><label>Número de Períodos</label><input type="number" id="ci-periods" placeholder="Ex: 24" min="1" step="1" /></div>
+          <div class="field">
+            <label>Aporte por Período (R$) <span class="text-muted" style="font-weight:400; text-transform:none;">(opcional)</span></label>
+            <input type="text" inputmode="decimal" id="ci-aporte" data-money placeholder="Ex: 200,00 — deixe em branco para sem aporte" min="0" step="0.01" />
+          </div>
+          <button class="btn btn-calc" onclick="calcCompound()">Calcular</button>
+          <div id="ci-result" style="display:none;">
+            <div class="result-box">
+              <div class="result-row"><span class="label">Capital Inicial</span><span class="value" id="ci-res-principal"></span></div>
+              <div class="result-row"><span class="label">Total Aportado</span><span class="value blue" id="ci-res-aporte-total"></span></div>
+              <div class="result-row"><span class="label">Total de Juros (compostos)</span><span class="value yellow" id="ci-res-interest"></span></div>
+              <div class="result-row"><span class="label">Diferença em relação a Juros Simples</span><span class="value green" id="ci-res-diff"></span></div>
+              <div class="result-row"><span class="label">Montante Final</span><span class="value yellow big" id="ci-res-total"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot yellow"></span>Compostos vs Simples</div>
+          <div class="chart-wrap"><canvas id="ci-chart"></canvas></div>
+        </div>
+      </div>
+      <div class="card" id="ci-schedule-card" style="display:none;">
+        <div class="card-title"><span class="dot blue"></span>Detalhamento por Período (primeiros 10)</div>
+        <div class="table-wrap">
+          <table>
+            <thead id="ci-schedule-head"><tr><th>Período</th><th>Juros do Período</th><th>Saldo Acumulado</th></tr></thead>
+            <tbody id="ci-schedule-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CONSIGNADO ─────────────────────────────────────────── -->
+    <div class="page" id="page-consignado">
+      <div class="page-header">
+        <h2>Simulação de Consignado</h2>
+        <p>Tabela Price com taxas reais de mercado. Escolha o que deseja calcular.</p>
+      </div>
+      <div class="card mb-20">
+        <div class="card-title"><span class="dot red"></span>Taxas de Referência do Mercado (2026)</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <div class="rate-badge">Servidor Público Federal: <strong>1,60% a.m.</strong> (máx. 96×)</div>
+          <div class="rate-badge">Beneficiário INSS: <strong>1,72% a.m.</strong> (máx. 84×)</div>
+          <div class="rate-badge">CLT / Setor Privado: <strong>1,80% a.m.</strong> (máx. 48×)</div>
+        </div>
+        <p class="small text-muted mt-8">O CET (Custo Efetivo Total) inclui IOF e tarifas e é apresentado como estimativa.</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot red"></span>Modo de Cálculo</div>
+          <div class="calc-mode-selector">
+            <button class="mode-btn active" id="mode-btn-findPMT" onclick="switchConsiMode('findPMT')">Calcular Valor da Parcela</button>
+            <button class="mode-btn"        id="mode-btn-findRate" onclick="switchConsiMode('findRate')">Calcular Taxa de Juros</button>
+          </div>
+          <div class="highlight-box mb-12" id="con-mode-hint-findPMT">
+            <p class="small text-muted">Informe <strong>Valor Total + Parcelas + Taxa</strong> para descobrir o valor de cada parcela.</p>
+          </div>
+          <div class="highlight-box yellow mb-12" id="con-mode-hint-findRate" style="display:none;">
+            <p class="small text-muted">Informe <strong>Valor Total + Parcelas + Valor da Parcela</strong> para descobrir a taxa cobrada.</p>
+          </div>
+          <div class="field"><label>Valor Total do Empréstimo (R$)</label><input type="text" inputmode="decimal" id="con-value" data-money placeholder="Ex: 15.000 ou 15000" min="100" step="100" /></div>
+          <div class="field">
+            <label>Número de Parcelas</label>
+            <input type="number" id="con-months" placeholder="Ex: 48" min="1" max="96" step="1" />
+            <div id="con-max-months" class="small text-muted mt-4">Máximo: 96 parcelas para esta modalidade</div>
+          </div>
+          <div class="field">
+            <label>Modalidade</label>
+            <select id="con-modality" onchange="onModalityChange()">
+              <option value="0">Servidor Público Federal (1,60% a.m.)</option>
+              <option value="1">Beneficiário INSS (1,72% a.m.)</option>
+              <option value="2">CLT / Setor Privado (1,80% a.m.)</option>
+              <option value="3">Taxa personalizada</option>
+            </select>
+          </div>
+          <div class="field" id="con-group-rate-input">
+            <label>Taxa de Juros Mensal (%)</label>
+            <input type="number" id="con-rate-input" placeholder="Ex: 1,60" min="0.01" step="0.001" value="1.60" />
+          </div>
+          <div class="field" id="con-group-pmt-input" style="display:none;">
+            <label>Valor da Parcela (R$)</label>
+            <input type="text" inputmode="decimal" id="con-pmt-input" data-money placeholder="Ex: 380,00" min="1" step="0.01" />
+          </div>
+          <button class="btn btn-calc" onclick="calcConsignado()">Simular</button>
+          <div id="con-result" style="display:none;">
+            <div class="result-box">
+              <div class="result-row"><span class="label">Modalidade</span><span class="value" id="con-res-modality"></span></div>
+              <div class="result-row"><span class="label">Taxa Mensal</span><span class="value" id="con-res-rate"></span></div>
+              <div class="result-row"><span class="label">CET Estimado</span><span class="value red" id="con-res-cet"></span></div>
+              <div class="result-row"><span class="label">Parcela Mensal</span><span class="value yellow big" id="con-res-pmt"></span></div>
+              <div class="result-row"><span class="label">Total Pago</span><span class="value red" id="con-res-total"></span></div>
+              <div class="result-row"><span class="label">Total em Juros</span><span class="value red" id="con-res-interest"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot red"></span>Composição das Parcelas</div>
+          <div class="chart-wrap"><canvas id="con-chart"></canvas></div>
+        </div>
+      </div>
+      <div class="card mt-20" id="con-amort-card" style="display:none;">
+        <div class="card-title"><span class="dot blue"></span>Tabela de Amortização (Tabela Price)</div>
+        <div class="amort-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Parcela</th><th>Juros</th><th>Amortização</th><th>Saldo Devedor</th></tr></thead>
+            <tbody id="con-amort-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── COMPRA PARCELADA ───────────────────────────────────── -->
+    <div class="page" id="page-cashflow">
+      <div class="page-header">
+        <h2>Simulação de Compra Parcelada</h2>
+        <p>Simule o custo real de um produto ao pagar parcelado com juros</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Dados da Compra</div>
+          <div class="highlight-box mb-12">
+            <p class="small"><strong>Como funciona:</strong> informe o valor do produto, a taxa de juros mensal cobrada e em quantas parcelas você quer pagar. Escolha também quando começa o pagamento.</p>
+            <p class="small text-muted mt-4">Se o pagamento começa mais tarde, os juros se acumulam sobre o preço original até a 1.ª parcela.</p>
+          </div>
+          <div class="field">
+            <label>Nome do Produto (opcional)</label>
+            <input type="text" id="cf-nome" placeholder="Ex: Notebook, Geladeira, Smartphone" />
+          </div>
+          <div class="field">
+            <label>Valor do Produto (R$)</label>
+            <input type="text" inputmode="decimal" id="cf-valor" data-money placeholder="Ex: 2.500 ou 2500" min="1" step="0.01" />
+          </div>
+          <div class="field">
+            <label>Taxa de Juros Mensal (%)</label>
+            <input type="number" id="cf-taxa" placeholder="Ex: 2,99" min="0.001" step="0.001" />
+          </div>
+          <div class="field">
+            <label>Número de Parcelas</label>
+            <input type="number" id="cf-parcelas" placeholder="Ex: 12" min="1" step="1" />
+          </div>
+          <div class="field">
+            <label>Início do Pagamento</label>
+            <select id="cf-carencia">
+              <option value="0">No ato da compra (paga na hora)</option>
+              <option value="1">Em 30 dias (próximo mês)</option>
+              <option value="2">Em 60 dias (daqui a 2 meses)</option>
+              <option value="3">Em 90 dias (daqui a 3 meses)</option>
+              <option value="4">Em 4 meses</option>
+              <option value="5">Em 5 meses</option>
+              <option value="6">Em 6 meses</option>
+            </select>
+          </div>
+          <button class="btn btn-calc" onclick="calcCashflow()">Simular Compra</button>
+
+          <div id="cf-result" style="display:none;">
+            <div class="result-box">
+              <div class="result-row"><span class="label">Produto</span><span class="value" id="cf-res-nome" style="font-family:var(--font-body);"></span></div>
+              <div class="result-row"><span class="label">Preço Original</span><span class="value" id="cf-res-pv"></span></div>
+              <div class="result-row"><span class="label">Início do Pagamento</span><span class="value small" id="cf-res-inicio" style="font-family:var(--font-body); font-size:0.8rem;"></span></div>
+              <div class="result-row"><span class="label">Saldo com Juros de Espera</span><span class="value yellow" id="cf-res-pvcorr"></span></div>
+              <div class="result-row"><span class="label">Valor de Cada Parcela</span><span class="value yellow big" id="cf-res-pmt"></span></div>
+              <div class="result-row"><span class="label">Total que Você Paga</span><span class="value red" id="cf-res-total"></span></div>
+              <div class="result-row"><span class="label">Total de Juros Pagos</span><span class="value red" id="cf-res-juros"></span></div>
+              <div class="result-row"><span class="label">Acréscimo sobre o Preço</span><span class="value red" id="cf-res-acrescimo"></span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Composição do Pagamento por Parcela</div>
+          <div class="chart-wrap"><canvas id="cf-chart"></canvas></div>
+          <div class="highlight-box mt-16" style="display:none;" id="cf-tip">
+            <p class="small text-muted">O gráfico mostra, para cada parcela, quanto você está pagando de juros (em vermelho) e quanto está amortizando o preço do produto (em verde).</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-20" id="cf-timeline-card" style="display:none;">
+        <div class="card-title"><span class="dot blue"></span>Cronograma Detalhado de Pagamentos</div>
+        <div class="amort-scroll">
+          <table>
+            <thead><tr><th>Mês</th><th>Situação</th><th>Valor Pago</th><th>Juros</th><th>Amortização</th><th>Saldo</th></tr></thead>
+            <tbody id="cf-timeline-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── POUPANÇA ────────────────────────────────────────────── -->
+    <div class="page" id="page-savings">
+      <div class="page-header">
+        <h2>Rendimento da Poupança</h2>
+        <p>Simulação com taxa Selic atual buscada automaticamente do Banco Central</p>
+      </div>
+      <div class="card mb-20">
+        <div class="card-title"><span class="dot green"></span>Taxa Selic Atual (Banco Central)</div>
+        <div class="selic-badge">
+          <span class="selic-dot"></span>
+          <span class="selic-label">Selic Meta:</span>
+          <span class="selic-val" id="selic-badge-val">buscando…</span>
+        </div>
+        <p class="small text-muted" id="selic-rule">Regra: 0,5% ao mês + TR (Selic acima de 8,5% a.a.)</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot green"></span>Parâmetros</div>
+          <div class="highlight-box mb-12">
+            <p class="small">Selic maior ou igual a 8,5% a.a.: rende <strong class="text-green">0,5% ao mês + TR</strong></p>
+            <p class="small">Selic menor que 8,5% a.a.: rende <strong class="text-yellow">70% da Selic dividido por 12</strong></p>
+          </div>
+          <div class="field"><label>Valor Depositado (R$)</label><input type="text" inputmode="decimal" id="sav-principal" data-money placeholder="Ex: 2.000 ou 2000" min="0.01" step="0.01" /></div>
+          <div class="field"><label>Número de Meses</label><input type="number" id="sav-months" placeholder="Ex: 24" min="1" step="1" /></div>
+          <div class="field">
+            <label>Aporte Mensal (R$) <span class="text-muted" style="font-weight:400; text-transform:none;">(opcional)</span></label>
+            <input type="text" inputmode="decimal" id="sav-aporte" data-money placeholder="Ex: 100,00 — deixe em branco para sem aporte" min="0" step="0.01" />
+          </div>
+          <button class="btn btn-calc" onclick="calcSavings()">Calcular</button>
+          <div id="sav-result" style="display:none;">
+            <div class="result-box">
+              <div class="result-row"><span class="label">Valor Inicial</span><span class="value" id="sav-res-principal"></span></div>
+              <div class="result-row"><span class="label">Total Aportado</span><span class="value blue" id="sav-res-aporte-total"></span></div>
+              <div class="result-row"><span class="label">Selic Utilizada</span><span class="value" id="sav-res-selic"></span></div>
+              <div class="result-row"><span class="label">Taxa Mensal Aplicada</span><span class="value" id="sav-res-rate"></span></div>
+              <div class="result-row"><span class="label">Regra Vigente</span><span class="value small" id="sav-res-rule" style="font-family:var(--font-body);font-size:0.78rem;"></span></div>
+              <div class="result-row"><span class="label">Total em Juros</span><span class="value green" id="sav-res-interest"></span></div>
+              <div class="result-row"><span class="label">Saldo Final</span><span class="value green big" id="sav-res-total"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot green"></span>Crescimento do Saldo</div>
+          <div class="chart-wrap"><canvas id="sav-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DESCONTO À VISTA ───────────────────────────────────── -->
+    <div class="page" id="page-discount">
+      <div class="page-header">
+        <h2>Desconto à Vista</h2>
+        <p>Calcule o valor final com desconto e veja quanto você economiza</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Dados do Produto</div>
+          <div class="highlight-box mb-12">
+            <p class="small"><strong>Como usar:</strong> informe o valor original e o percentual de desconto para pagamento à vista. O app calcula o valor final e a economia.</p>
+          </div>
+          <div class="field"><label>Valor Original do Produto (R$)</label><input type="text" inputmode="decimal" id="disc-price" data-money placeholder="Ex: 1.299,90 ou 1299.90" min="0.01" step="0.01" /></div>
+          <div class="field"><label>Desconto para Pagamento à Vista (%)</label><input type="number" id="disc-pct" placeholder="Ex: 10" min="0.01" max="100" step="0.01" /></div>
+          <button class="btn btn-calc" onclick="calcDiscount()">Calcular Desconto</button>
+          <div id="disc-result" style="display:none;">
+            <div class="result-box">
+              <div class="result-row"><span class="label">Valor Original</span><span class="value" id="disc-res-original"></span></div>
+              <div class="result-row"><span class="label">Desconto Aplicado</span><span class="value yellow" id="disc-res-discount"></span></div>
+              <div class="result-row"><span class="label">Valor à Vista</span><span class="value green big" id="disc-res-final"></span></div>
+              <div class="result-row"><span class="label">Economia Total</span><span class="value green" id="disc-res-savings"></span></div>
+            </div>
+            <div style="margin-top:16px;">
+              <div class="small text-muted mb-12">Percentual de desconto aplicado:</div>
+              <div class="progress-track" style="height:14px;"><div class="progress-fill" id="disc-progress" style="width:0%;"></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Como Funciona</div>
+          <div style="display:flex; flex-direction:column; gap:14px;">
+            <div class="highlight-box">
+              <p class="small bold text-green">Exemplo prático</p>
+              <p class="small text-muted mt-4">Produto de R$ 1.000,00 com 10% de desconto à vista:</p>
+              <p class="small mt-4">Desconto = R$ 1.000 × 10% = <strong class="text-green">R$ 100,00</strong></p>
+              <p class="small">Valor final = R$ 1.000 menos R$ 100 = <strong class="text-green">R$ 900,00</strong></p>
+            </div>
+            <div class="highlight-box yellow">
+              <p class="small bold text-yellow">Dica importante</p>
+              <p class="small text-muted mt-4">Antes de aceitar um desconto à vista, compare se vale mais a pena parcelar sem juros e investir o valor na poupança ou em renda fixa durante o período.</p>
+            </div>
+            <div style="background:var(--bg-2); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px;">
+              <p class="small bold" style="margin-bottom:6px;">Fórmula utilizada</p>
+              <p class="small text-muted">Valor à Vista = Preço × (1 menos Desconto ÷ 100)</p>
+              <p class="small text-muted mt-4">Economia = Preço × (Desconto ÷ 100)</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── METAS FINANCEIRAS ──────────────────────────────────── -->
+    <div class="page" id="page-goals">
+      <div class="page-header">
+        <h2>Metas Financeiras</h2>
+        <p>Defina objetivos e acompanhe o progresso dos seus sonhos</p>
+      </div>
+      <div class="card mb-20">
+        <div class="card-title"><span class="dot yellow"></span>Nova Meta</div>
+        <div class="field-row cols-2">
+          <div class="field"><label>Nome da Meta</label><input type="text" id="goal-title" placeholder="Ex: Meus Primeiros 10 Mil" /></div>
+          <div class="field"><label>Valor Alvo (R$)</label><input type="text" inputmode="decimal" id="goal-target" data-money placeholder="Ex: 10.000 ou 10000" min="1" step="0.01" /></div>
+        </div>
+        <button class="btn btn-yellow" style="width:auto; padding:10px 28px;" onclick="addGoal()">Criar Meta</button>
+      </div>
+      <div id="goals-list"></div>
+    </div>
+
+    <!-- ── VEÍCULOS E IMÓVEIS ─────────────────────────────────── -->
+    <div class="page" id="page-vehicle">
+      <div class="page-header">
+        <h2>Financiamento de Veículos e Imóveis</h2>
+        <p>Simule o custo real do financiamento e compare com o consórcio</p>
+      </div>
+
+      <div class="card mb-20">
+        <div class="card-title"><span class="dot red"></span>Taxas Médias de Mercado (Brasil 2025/2026)</div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+          <div class="rate-badge">Carro Novo: <strong>1,49% a.m.</strong></div>
+          <div class="rate-badge">Carro Usado: <strong>1,99% a.m.</strong></div>
+          <div class="rate-badge">Moto Nova: <strong>1,45% a.m.</strong></div>
+          <div class="rate-badge">Moto Usada: <strong>1,89% a.m.</strong></div>
+          <div class="rate-badge">Imóvel SFH/MCMV: <strong>0,74% a.m.</strong></div>
+          <div class="rate-badge">Imóvel SFI Mercado: <strong>1,00% a.m.</strong></div>
+        </div>
+        <p class="small text-muted mt-8">Fontes: Banco Central do Brasil, ANEF, CAIXA Econômica Federal. Taxas de referência sujeitas a variação conforme perfil do cliente e instituição financeira.</p>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Parâmetros da Simulação</div>
+          <div class="field">
+            <label>Modalidade</label>
+            <select id="veh-modality" onchange="onVehicleModalityChange()">
+              <option value="" disabled selected>Selecione a modalidade...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Valor do Bem (R$)</label>
+            <input type="text" inputmode="decimal" id="veh-valor" data-money placeholder="Ex: 60.000 ou 60000" min="1000" step="100" />
+          </div>
+          <div class="field">
+            <label>Número de Parcelas</label>
+            <input type="number" id="veh-months" placeholder="Ex: 48" min="1" max="360" step="1" />
+            <div id="veh-max-months" class="small text-muted mt-4">Selecione a modalidade primeiro</div>
+          </div>
+          <div class="field">
+            <label>Taxa de Juros Mensal (%) <span class="text-muted" style="font-weight:400; text-transform:none;">(preenchida automaticamente)</span></label>
+            <input type="number" id="veh-rate-input" placeholder="Ex: 1,49" min="0.01" step="0.01" />
+          </div>
+          <button class="btn btn-calc" onclick="calcVehicle()">Simular Financiamento</button>
+
+          <div id="veh-result" style="display:none;">
+            <hr class="divider">
+            <p class="small bold" style="margin-bottom:10px;">Financiamento (Tabela Price)</p>
+            <div class="result-box">
+              <div class="result-row"><span class="label">Modalidade</span><span class="value" id="veh-res-option" style="font-family:var(--font-body);"></span></div>
+              <div class="result-row"><span class="label">Valor do Bem</span><span class="value" id="veh-res-pv"></span></div>
+              <div class="result-row"><span class="label">Taxa Mensal</span><span class="value" id="veh-res-rate"></span></div>
+              <div class="result-row"><span class="label">CET Estimado</span><span class="value red" id="veh-res-cet"></span></div>
+              <div class="result-row"><span class="label">Parcela Mensal</span><span class="value yellow big" id="veh-res-pmt"></span></div>
+              <div class="result-row"><span class="label">Total Pago</span><span class="value red" id="veh-res-total"></span></div>
+              <div class="result-row"><span class="label">Total em Juros</span><span class="value red" id="veh-res-juros"></span></div>
+              <div class="result-row"><span class="label">Acréscimo</span><span class="value red" id="veh-res-pct-juros"></span></div>
+            </div>
+
+            <hr class="divider">
+            <p class="small bold" style="margin-bottom:10px;">Consórcio (comparação)</p>
+            <div class="result-box">
+              <div class="result-row"><span class="label">Parcela do Consórcio</span><span class="value green" id="veh-cons-pmt"></span></div>
+              <div class="result-row"><span class="label">Duração</span><span class="value" id="veh-cons-meses"></span></div>
+              <div class="result-row"><span class="label">Taxa de Administração</span><span class="value" id="veh-cons-taxa"></span></div>
+              <div class="result-row"><span class="label">Total no Consórcio</span><span class="value" id="veh-cons-total"></span></div>
+            </div>
+
+            <hr class="divider">
+            <p class="small bold" style="margin-bottom:10px;">Recomendação</p>
+            <div id="veh-recommendation" class="highlight-box"></div>
+          </div>
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <div class="card">
+            <div class="card-title"><span class="dot blue"></span>Financiamento vs Consórcio — Total Pago</div>
+            <div class="chart-wrap"><canvas id="veh-compare-chart"></canvas></div>
+          </div>
+          <div class="card">
+            <div class="card-title"><span class="dot red"></span>Composição das Parcelas do Financiamento</div>
+            <div class="chart-wrap"><canvas id="veh-schedule-chart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mt-20" id="veh-amort-card" style="display:none;">
+        <div class="card-title"><span class="dot blue"></span>Tabela de Amortização Completa (Tabela Price)</div>
+        <div class="amort-scroll">
+          <table>
+            <thead><tr><th>#</th><th>Parcela</th><th>Juros</th><th>Amortização</th><th>Saldo Devedor</th></tr></thead>
+            <tbody id="veh-amort-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VÍDEOS EDUCACIONAIS ───────────────────────────────── -->
+    <div class="page" id="page-videos">
+      <div class="page-header">
+        <h2>Vídeos Educacionais</h2>
+        <p>Assista aqui mesmo ou acesse diretamente no YouTube</p>
+      </div>
+      <div class="highlight-box mb-20">
+        <p class="small text-muted">Os vídeos abaixo foram selecionados para complementar o aprendizado de matemática financeira. Você pode assistir diretamente nesta tela ou clicar em "Assistir no YouTube" para abrir em uma nova aba.</p>
+      </div>
+      <div id="videos-list"></div>
+    </div>
+
+    <!-- ── CRÉDITOS ────────────────────────────────────────────── -->
+    <div class="page" id="page-credits">
+      <div class="page-header">
+        <h2>Créditos</h2>
+        <p>Informações sobre o desenvolvimento deste projeto</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot green"></span>Equipe de Desenvolvimento</div>
+          <div class="result-box">
+            <div class="result-row">
+              <span class="label">Desenvolvedor</span>
+              <span class="value" style="font-family:var(--font-body); text-align:right;">João Victor Candido Vitor<br><span class="text-muted small">UTFPR-LD</span></span>
+            </div>
+            <div class="result-row">
+              <span class="label">Orientador</span>
+              <span class="value" style="font-family:var(--font-body); text-align:right;">Alireza Mohebi Ashtiani<br><span class="text-muted small">UTFPR-LD</span></span>
+            </div>
+            <div class="result-row">
+              <span class="label">Coorientadora</span>
+              <span class="value" style="font-family:var(--font-body); text-align:right;">Tatielen Demarchi<br><span class="text-muted small">SEDUC-SP</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Sobre o Projeto</div>
+          <div class="result-box">
+            <div class="result-row">
+              <span class="label">Projeto</span>
+              <span class="value" style="font-family:var(--font-body); font-size:0.85rem; text-align:right; max-width:260px;">Pesquisa e Desenvolvimento de Tecnologias Digitais Aplicadas à Educação Matemática</span>
+            </div>
+            <div class="result-row">
+              <span class="label">Financiamento</span>
+              <span class="value" style="font-family:var(--font-body);">UTFPR<br><span class="text-muted small">Bolsa PIBITI</span></span>
+            </div>
+            <div class="result-row">
+              <span class="label">Instituição</span>
+              <span class="value" style="font-family:var(--font-body);">UTFPR Campus Londrina</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card mt-20">
+        <div class="card-title"><span class="dot yellow"></span>Tecnologias Utilizadas</div>
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:4px;">
+          <div class="rate-badge">HTML5</div>
+          <div class="rate-badge">CSS3</div>
+          <div class="rate-badge">JavaScript ES6+</div>
+          <div class="rate-badge">Chart.js 4.4</div>
+          <div class="rate-badge">Google Fonts Inter</div>
+          <div class="rate-badge">API Banco Central (Selic)</div>
+          <div class="rate-badge">localStorage (banco de dados)</div>
+        </div>
+        <div class="highlight-box mt-16">
+          <p class="small text-muted">Este aplicativo foi desenvolvido como ferramenta educacional para o ensino de matemática financeira, abrangendo juros simples, juros compostos, sistemas de amortização, poupança e planejamento orçamentário.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CONFIGURAÇÕES ──────────────────────────────────────── -->
+    <div class="page" id="page-settings">
+      <div class="page-header">
+        <h2>Configurações</h2>
+        <p>Gerencie sua conta e preferências</p>
+      </div>
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title"><span class="dot blue"></span>Informações da Conta</div>
+          <div class="result-box">
+            <div class="result-row"><span class="label">Usuário</span><span class="value text-green" id="settings-username">—</span></div>
+            <div class="result-row"><span class="label">Conta criada em</span><span class="value" id="settings-created">—</span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title"><span class="dot yellow"></span>Alterar Senha</div>
+          <div id="cfg-msg" class="msg"></div>
+          <div class="field"><label>Senha Atual</label><input type="password" id="cfg-current" placeholder="Senha atual" /></div>
+          <div class="field"><label>Nova Senha</label><input type="password" id="cfg-new" placeholder="Mínimo 6 caracteres" /></div>
+          <div class="field"><label>Confirmar Nova Senha</label><input type="password" id="cfg-confirm" placeholder="Repita a nova senha" /></div>
+          <button class="btn btn-yellow" style="width:auto; padding:10px 24px;" onclick="handleChangePassword()">Alterar Senha</button>
+        </div>
+      </div>
+      <div class="card mt-20" style="border-color: rgba(214,48,80,0.2);">
+        <div class="card-title"><span class="dot red"></span>Zona de Perigo</div>
+        <p class="text-muted small mb-12">Esta ação é permanente. Todos os seus dados serão removidos definitivamente.</p>
+        <button class="btn btn-danger" style="width:auto; padding:10px 24px;" onclick="openDeleteModal()">Excluir Minha Conta</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Modal: Confirmar Exclusão -->
+<div class="modal-overlay" id="delete-modal">
+  <div class="modal">
+    <h3 style="color:var(--red);">Confirmar Exclusão de Conta</h3>
+    <p style="color:var(--text-2); font-size:0.9rem; margin-bottom:8px;">
+      Tem certeza? Todos os seus dados serão removidos permanentemente.
+    </p>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmDeleteAccount()">Sim, Excluir</button>
+    </div>
+  </div>
+</div>
+
+<script src="js/database.js"></script>
+<script src="js/finance.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
